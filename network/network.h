@@ -24,6 +24,9 @@ void freeNetwork(NeuralNetwork* nn);
 // Activation functions
 float sigmoid(float x);
 float sigmoid_derivative(float x);
+float relu(float x);
+float relu_derivative(float x);
+void softmax(float *values, int length);
 
 // Model serialization functions (Binary Format)
 int saveNetworkBinary(NeuralNetwork *nn, char **vocab, int vocab_size, const char* filename);
