@@ -6,6 +6,14 @@
 #include "./dataParsing/dataParser.h"
 #include "./network/network.h"
 #include "./dataParsing/vocabHash.h"
+#include "uthash.h"
+
+// Hash table structure to map vocabulary words to their indices
+typedef struct {
+    char *word;
+    int index;
+    UT_hash_handle hh;
+} VocabIndex;
 
 // Define emotion labels corresponding to their numerical indices
 const char* emotion_labels[6] = {
@@ -18,7 +26,8 @@ const char* emotion_labels[6] = {
 };
 
 // Function to convert text to numerical input (Bag of Words)
-float* textToInput(const char* text, int vocab_size, char **vocab) {
+// Convert text to numerical input using a hash table for fast lookups
+float* textToInput(const char* text, int vocab_size, VocabIndex *index_map) {
     float* input = (float*)calloc(vocab_size, sizeof(float)); // Initialize with zeros
     if (!input) {
         perror("Memory allocation failed in textToInput");
@@ -41,12 +50,11 @@ float* textToInput(const char* text, int vocab_size, char **vocab) {
             token[i] = tolower(token[i]);
         }
 
-        // Linear search in the vocabulary
-        for (int i = 0; i < vocab_size; i++) {
-            if (strcmp(token, vocab[i]) == 0) {
-                input[i] += 1.0f; // Increment the count for this word
-                break;
-            }
+        // Use hash table lookup for O(1) access to word index
+        VocabIndex *entry;
+        HASH_FIND_STR(index_map, token, entry);
+        if (entry) {
+            input[entry->index] += 1.0f;
         }
 
         token = strtok(NULL, " \t\n\r.,;!?\"'");
@@ -151,11 +159,41 @@ char** buildVocabulary(DataPoint* data, int num_datapoints, int *vocab_size) {
     return vocab;
 }
 
+// Build a hash table that maps each vocabulary word to its index
+VocabIndex* buildIndexMap(char **vocab, int vocab_size) {
+    VocabIndex *map = NULL;
+    for (int i = 0; i < vocab_size; i++) {
+        VocabIndex *entry = (VocabIndex*)malloc(sizeof(VocabIndex));
+        if (!entry) {
+            perror("Memory allocation failed for VocabIndex");
+            VocabIndex *cur, *tmp;
+            HASH_ITER(hh, map, cur, tmp) {
+                HASH_DEL(map, cur);
+                free(cur);
+            }
+            return NULL;
+        }
+        entry->word = vocab[i];
+        entry->index = i;
+        HASH_ADD_KEYPTR(hh, map, entry->word, strlen(entry->word), entry);
+    }
+    return map;
+}
+
+void freeIndexMap(VocabIndex *map) {
+    VocabIndex *cur, *tmp;
+    HASH_ITER(hh, map, cur, tmp) {
+        HASH_DEL(map, cur);
+        free(cur);
+    }
+}
+
 int main() {
     int choice;
     NeuralNetwork* nn = NULL;
     char **vocab = NULL;
     int vocab_size = 0;
+    VocabIndex *index_map = NULL;
     const char* model_filename = "model.bin"; // Binary model file
 
     printf("=== Emotion Classifier ===\n");
@@ -173,6 +211,14 @@ int main() {
         nn = loadNetworkBinary(model_filename, &vocab, &vocab_size);
         if (!nn) {
             fprintf(stderr, "Failed to load the model. Exiting.\n");
+            return 1;
+        }
+        index_map = buildIndexMap(vocab, vocab_size);
+        if (!index_map) {
+            fprintf(stderr, "Failed to build vocabulary index.\n");
+            for (int i = 0; i < vocab_size; i++) free(vocab[i]);
+            free(vocab);
+            freeNetwork(nn);
             return 1;
         }
         printf("Model loaded successfully from '%s'.\n", model_filename);
@@ -199,6 +245,17 @@ int main() {
 
         printf("Vocabulary size: %d\n", vocab_size);
 
+        index_map = buildIndexMap(vocab, vocab_size);
+        if (!index_map) {
+            fprintf(stderr, "Failed to build vocabulary index.\n");
+            for (int j = 0; j < vocab_size; j++) {
+                free(vocab[j]);
+            }
+            free(vocab);
+            freeData(data, num_datapoints);
+            return 1;
+        }
+
         // Determine input size (size of vocabulary)
         int input_size = vocab_size;
 
@@ -221,7 +278,7 @@ int main() {
 
         // Convert text data to numerical input and create target arrays
         for (int i = 0; i < num_datapoints; i++) {
-            inputs[i] = textToInput(data[i].text, vocab_size, vocab);
+            inputs[i] = textToInput(data[i].text, vocab_size, index_map);
             if (!inputs[i]) {
                 fprintf(stderr, "Failed to convert text to input for data point %d.\n", i);
                 // Free previously allocated inputs and targets
@@ -331,7 +388,7 @@ int main() {
         }
 
         // Convert input text to numerical input
-        float* numerical_input = textToInput(input_text, vocab_size, vocab);
+        float* numerical_input = textToInput(input_text, vocab_size, index_map);
         if (!numerical_input) {
             fprintf(stderr, "Failed to convert input text to numerical format.\n");
             continue;
@@ -368,6 +425,7 @@ int main() {
     }
 
     // Free allocated memory for vocabulary
+    freeIndexMap(index_map);
     for (int i = 0; i < vocab_size; i++) {
         free(vocab[i]);
     }

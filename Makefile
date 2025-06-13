@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -Wall -g  -I./include # -Wall enables warnings, -g adds debugging info
 
 main: main.o network.o dataParser.o
-	$(CC) $(CFLAGS) -o main main.o network.o dataParser.o
+	$(CC) $(CFLAGS) -o main main.o network.o dataParser.o -lm
 
 main.o: main.c ./network/network.h ./dataParsing/dataParser.h ./dataParsing/vocabHash.h
 	$(CC) $(CFLAGS) -c main.c
