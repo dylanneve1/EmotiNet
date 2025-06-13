@@ -27,6 +27,7 @@ The **Emotion Classifier** is a C-based application that leverages a neural netw
 ## Features
 
 - **Neural Network Implementation:** Custom neural network built from scratch in C.
+- **Modern Training Pipeline:** Uses ReLU activations with He initialization and a softmax output layer trained via cross-entropy loss for improved accuracy.
 - **Vocabulary Building:** Efficiently constructs a vocabulary from the dataset using hash tables.
 - **Model Persistence:** Saves and loads trained models in binary format.
 - **Interactive Interface:** Allows users to input text and receive emotion predictions in real-time.
@@ -38,7 +39,7 @@ The **Emotion Classifier** is a C-based application that leverages a neural netw
 The project is structured into several modules, each responsible for specific functionalities:
 
 - **main.c:** Entry point of the application. Handles user interactions, model training, and prediction.
-- **network (subfolder):** Contains `network.c` and `network.h`, which implement the neural network structure, including forward and backward propagation.
+- **network (subfolder):** Contains `network.c` and `network.h`, which implement the neural network with ReLU hidden layers and a softmax output trained via cross-entropy.
 - **dataParsing (subfolder):** Contains `dataParser.c`, `dataParser.h`, `vocabHash.h`, which handle dataset parsing and vocabulary management.
 - **Makefile:** Automates the build process, compiling source files and managing dependencies.
 

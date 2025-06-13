@@ -16,6 +16,32 @@ float sigmoid_derivative(float x) {
     return x * (1.0f - x);
 }
 
+// ReLU activation function
+float relu(float x) {
+    return x > 0.0f ? x : 0.0f;
+}
+
+// Derivative of ReLU
+float relu_derivative(float x) {
+    return x > 0.0f ? 1.0f : 0.0f;
+}
+
+// Softmax activation for output layer
+void softmax(float *values, int length) {
+    float max = values[0];
+    for (int i = 1; i < length; i++) {
+        if (values[i] > max) max = values[i];
+    }
+    float sum = 0.0f;
+    for (int i = 0; i < length; i++) {
+        values[i] = expf(values[i] - max);
+        sum += values[i];
+    }
+    for (int i = 0; i < length; i++) {
+        values[i] /= sum;
+    }
+}
+
 // Helper function to multiply matrix and vector
 void matrixVectorMultiply(float *result, float **matrix, float *vector, int rows, int cols) {
     for (int i = 0; i < rows; i++) {
@@ -60,8 +86,10 @@ NeuralNetwork* createNetwork(int input_nodes, int hidden_nodes, int output_nodes
             free(nn);
             return NULL;
         }
+        float scale = sqrtf(2.0f / input_nodes);
         for (int j = 0; j < input_nodes; j++) {
-            nn->weights_ih[i][j] = 2.0f * ((float)rand() / RAND_MAX) - 1.0f; // Initialize weights between -1 and 1
+            float r = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
+            nn->weights_ih[i][j] = r * scale;
         }
     }
 
@@ -95,8 +123,10 @@ NeuralNetwork* createNetwork(int input_nodes, int hidden_nodes, int output_nodes
             free(nn);
             return NULL;
         }
+        float scale = sqrtf(2.0f / hidden_nodes);
         for (int j = 0; j < hidden_nodes; j++) {
-            nn->weights_ho[i][j] = 2.0f * ((float)rand() / RAND_MAX) - 1.0f; // Initialize weights between -1 and 1
+            float r = ((float)rand() / RAND_MAX) * 2.0f - 1.0f;
+            nn->weights_ho[i][j] = r * scale;
         }
     }
 
@@ -118,7 +148,7 @@ NeuralNetwork* createNetwork(int input_nodes, int hidden_nodes, int output_nodes
     }
 
     for (int i = 0; i < hidden_nodes; i++) {
-        nn->hidden_bias[i] = 2.0f * ((float)rand() / RAND_MAX) - 1.0f; // Initialize biases between -1 and 1
+        nn->hidden_bias[i] = 0.0f;
     }
 
     nn->output_bias = (float*)malloc(output_nodes * sizeof(float));
@@ -139,7 +169,7 @@ NeuralNetwork* createNetwork(int input_nodes, int hidden_nodes, int output_nodes
     }
 
     for (int i = 0; i < output_nodes; i++) {
-        nn->output_bias[i] = 2.0f * ((float)rand() / RAND_MAX) - 1.0f; // Initialize biases between -1 and 1
+        nn->output_bias[i] = 0.0f;
     }
 
     return nn;
@@ -153,33 +183,33 @@ void train(NeuralNetwork* nn, float **inputs, float **targets, int num_samples, 
         for (int sample = 0; sample < num_samples; sample++) {
             // ----- Feedforward -----
             // Calculate Hidden Layer Activations
-            float hidden_inputs[nn->hidden_nodes];
-            matrixVectorMultiply(hidden_inputs, nn->weights_ih, inputs[sample], nn->hidden_nodes, nn->input_nodes);
+            float hidden_outputs[nn->hidden_nodes];
+            matrixVectorMultiply(hidden_outputs, nn->weights_ih, inputs[sample], nn->hidden_nodes, nn->input_nodes);
             for (int i = 0; i < nn->hidden_nodes; i++) {
-                hidden_inputs[i] += nn->hidden_bias[i];
-                hidden_inputs[i] = sigmoid(hidden_inputs[i]);
+                hidden_outputs[i] += nn->hidden_bias[i];
+                hidden_outputs[i] = relu(hidden_outputs[i]);
             }
 
             // Calculate Output Layer Activations
-            float output_inputs[nn->output_nodes];
-            matrixVectorMultiply(output_inputs, nn->weights_ho, hidden_inputs, nn->output_nodes, nn->hidden_nodes);
+            float output_probs[nn->output_nodes];
+            matrixVectorMultiply(output_probs, nn->weights_ho, hidden_outputs, nn->output_nodes, nn->hidden_nodes);
             for (int i = 0; i < nn->output_nodes; i++) {
-                output_inputs[i] += nn->output_bias[i];
-                output_inputs[i] = sigmoid(output_inputs[i]);
+                output_probs[i] += nn->output_bias[i];
             }
+            softmax(output_probs, nn->output_nodes);
 
-            // ----- Calculate Error -----
+            // ----- Calculate Error (Cross-Entropy) -----
             float output_errors[nn->output_nodes];
             for (int i = 0; i < nn->output_nodes; i++) {
-                output_errors[i] = targets[sample][i] - output_inputs[i];
-                total_error += output_errors[i] * output_errors[i];
+                output_errors[i] = output_probs[i] - targets[sample][i];
+                total_error += -targets[sample][i] * logf(output_probs[i] + 1e-7f);
             }
 
             // ----- Backpropagation -----
-            // Calculate gradients for output layer
+            // Gradients for output layer (softmax derivative included)
             float output_gradients[nn->output_nodes];
             for (int i = 0; i < nn->output_nodes; i++) {
-                output_gradients[i] = output_errors[i] * sigmoid_derivative(output_inputs[i]);
+                output_gradients[i] = output_errors[i];
             }
 
             // Calculate errors for hidden layer
@@ -187,21 +217,21 @@ void train(NeuralNetwork* nn, float **inputs, float **targets, int num_samples, 
             for (int i = 0; i < nn->hidden_nodes; i++) {
                 hidden_errors[i] = 0.0f;
                 for (int j = 0; j < nn->output_nodes; j++) {
-                    hidden_errors[i] += nn->weights_ho[j][i] * output_errors[j];
+                    hidden_errors[i] += nn->weights_ho[j][i] * output_gradients[j];
                 }
             }
 
             // Calculate gradients for hidden layer
             float hidden_gradients[nn->hidden_nodes];
             for (int i = 0; i < nn->hidden_nodes; i++) {
-                hidden_gradients[i] = hidden_errors[i] * sigmoid_derivative(hidden_inputs[i]);
+                hidden_gradients[i] = hidden_errors[i] * relu_derivative(hidden_outputs[i]);
             }
 
             // ----- Update Weights and Biases -----
             // Update weights from Hidden to Output
             for (int i = 0; i < nn->output_nodes; i++) {
                 for (int j = 0; j < nn->hidden_nodes; j++) {
-                    nn->weights_ho[i][j] += learning_rate * output_gradients[i] * hidden_inputs[j];
+                    nn->weights_ho[i][j] += learning_rate * output_gradients[i] * hidden_outputs[j];
                 }
                 nn->output_bias[i] += learning_rate * output_gradients[i];
             }
@@ -215,9 +245,9 @@ void train(NeuralNetwork* nn, float **inputs, float **targets, int num_samples, 
             }
         }
 
-        // Calculate Mean Squared Error for the epoch
-        float mse = total_error / num_samples;
-        printf("Epoch %d/%d, MSE: %f\n", epoch + 1, epochs, mse);
+        // Calculate Cross-Entropy Loss for the epoch
+        float loss = total_error / num_samples;
+        printf("Epoch %d/%d, Loss: %f\n", epoch + 1, epochs, loss);
     }
 }
 
@@ -232,7 +262,7 @@ float* predict(NeuralNetwork *nn, float *inputs) {
     matrixVectorMultiply(hidden_outputs, nn->weights_ih, inputs, nn->hidden_nodes, nn->input_nodes);
     for (int i = 0; i < nn->hidden_nodes; i++) {
         hidden_outputs[i] += nn->hidden_bias[i];
-        hidden_outputs[i] = sigmoid(hidden_outputs[i]);
+        hidden_outputs[i] = relu(hidden_outputs[i]);
     }
 
     float *outputs = (float*)malloc(nn->output_nodes * sizeof(float));
@@ -245,8 +275,8 @@ float* predict(NeuralNetwork *nn, float *inputs) {
     matrixVectorMultiply(outputs, nn->weights_ho, hidden_outputs, nn->output_nodes, nn->hidden_nodes);
     for (int i = 0; i < nn->output_nodes; i++) {
         outputs[i] += nn->output_bias[i];
-        outputs[i] = sigmoid(outputs[i]);
     }
+    softmax(outputs, nn->output_nodes);
 
     free(hidden_outputs);
     return outputs; // Caller must free this memory!
